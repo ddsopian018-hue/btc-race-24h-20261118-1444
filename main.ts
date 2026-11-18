@@ -26,11 +26,15 @@
 //     backstops, plus a 120-bar max hold so no position is ever carried
 //     overnight through a grinding downtrend.
 //
-// Sizing: a fixed $600 stake (60% of the $1,000 capital). A full-size
-// round trip pays ~36 bps in fees, slippage and impact against this pool's
-// depth; $600 keeps the impact leg near 7 bps, so a typical +50-100 bps
-// snap still nets a profit after costs, while the stake is large enough
-// for the snap to matter. The stake is capped by the cash on hand.
+// Sizing: a fixed $600 stake (60% of the $1,000 capital), raised to the
+// full $1,000 only when the drop is extreme — the 60-bar return at or
+// below -150 bps. A deeper drop snaps back further (the dev window's
+// -200 bps crash bounced +129 bps within the hour), so the rare extreme
+// signal is worth the full stake; ordinary signals stay at $600 to keep
+// the impact leg near 7 bps, so a typical +50-100 bps snap still nets a
+// profit after the ~26 bps a full-size round trip pays in fees, slippage
+// and impact against this pool's depth. The stake is capped by the cash
+// on hand.
 //
 // Determinism: the bot is a pure function of the bars it has been sent.
 // It reads no clock, no environment and no randomness (the seed from
@@ -56,6 +60,10 @@ const DROP_BPS = 55;
 const TURN_WINDOW = 3;
 /** Fixed stake per trade, in quote units ($600 = 600,000,000 micro-USDC). */
 const STAKE_QUOTE_UNITS = 600_000_000n;
+/** An extreme drop: 60-bar return at or below -150 bps earns the full stake. */
+const EXTREME_WINDOW = 60;
+const EXTREME_BPS = 150;
+const EXTREME_STAKE_QUOTE_UNITS = 1_000_000_000n;
 /** Take profit: position worth 100 bps over its cost (fees included). */
 const TAKE_PROFIT_BPS = 100n;
 /** Stop loss: position worth 80 bps under its cost. */
@@ -118,7 +126,11 @@ await runBars({
     if (closes.length <= DROP_WINDOW) return [];
     if (returnBps(DROP_WINDOW) > -DROP_BPS) return [];
     if (returnBps(TURN_WINDOW) <= 0) return [];
-    const stake = state.cash < STAKE_QUOTE_UNITS ? state.cash : STAKE_QUOTE_UNITS;
+    // Extreme drop (60-bar return <= -150 bps): the snap is bigger, so the
+    // full $1,000 stake is worth it; otherwise the standard $600 stake.
+    const extreme = returnBps(EXTREME_WINDOW) <= -EXTREME_BPS;
+    const target = extreme ? EXTREME_STAKE_QUOTE_UNITS : STAKE_QUOTE_UNITS;
+    const stake = state.cash < target ? state.cash : target;
     if (stake < BigInt(state.hello.fees.min_notional_quote_units)) return [];
     entryBar = closes.length - 1;
     return [{ side: 'buy', symbol: SYMBOL, notional_quote_units: stake, max_slippage_bps: MAX_SLIPPAGE_BPS } satisfies BuyInput];
